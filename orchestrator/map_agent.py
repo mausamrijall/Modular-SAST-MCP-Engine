@@ -90,6 +90,20 @@ AGENTS = {
     "infra": ("mcp_servers.infra_agent", "audit_infra", "Infra & Client Agent"),
 }
 
+RESEARCH_AGENTS = {
+    "taint": ("mcp_servers.taint_agent", "audit_taint", "Semantic Flow & Taint Engine"),
+    "business_logic": (
+        "mcp_servers.business_logic_agent",
+        "audit_business_logic",
+        "Context-Aware Business Logic Evaluator",
+    ),
+    "safe_poc": (
+        "mcp_servers.poc_agent",
+        "generate_safe_poc",
+        "Automated Exploit Proof-of-Concept Generator",
+    ),
+}
+
 
 def _run_domain(agent: str, target_path: str) -> dict[str, Any]:
     module, tool_name, display_name = AGENTS[agent]
@@ -130,20 +144,52 @@ def _run_supply_chain(target_path: str, requested_by: list[str]) -> dict[str, An
         }
 
 
+def _run_research(research_type: str, target_path: str) -> dict[str, Any]:
+    module, tool_name, display_name = RESEARCH_AGENTS[research_type]
+    try:
+        with StdioMcpClient(module) as client:
+            client.request("tools/list")
+            result = client.call_tool(tool_name, {"target_path": target_path})
+        result["display_name"] = display_name
+        result["orchestrator_research_type"] = research_type
+        return result
+    except Exception as exc:
+        return {
+            "research_type": research_type,
+            "display_name": display_name,
+            "status": "failed",
+            "error": str(exc),
+            "findings": [],
+        }
+
+
 def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[str, Any]:
     target = str(Path(target_path).expanduser().resolve())
     analysis_target = str(Path(diff_path).expanduser().resolve()) if diff_path else target
     if diff_path and not Path(analysis_target).is_file():
         raise FileNotFoundError(f"Diff does not exist or is not a file: {diff_path}")
-    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="domain-agent") as executor:
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix="research-layer") as executor:
         futures = {
-            executor.submit(_run_domain, agent, analysis_target): agent
+            executor.submit(_run_domain, agent, analysis_target): ("domain", agent)
             for agent in AGENTS
         }
+        futures.update(
+            {
+                executor.submit(_run_research, research_type, analysis_target): (
+                    "research",
+                    research_type,
+                )
+                for research_type in RESEARCH_AGENTS
+            }
+        )
         domain_reports: dict[str, dict[str, Any]] = {}
+        research_reports: dict[str, dict[str, Any]] = {}
         for future in as_completed(futures):
-            agent = futures[future]
-            domain_reports[agent] = future.result()
+            report_kind, report_name = futures[future]
+            if report_kind == "domain":
+                domain_reports[report_name] = future.result()
+            else:
+                research_reports[report_name] = future.result()
 
     requested_by = sorted(
         agent
@@ -156,6 +202,8 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
     for report in domain_reports.values():
         all_findings.extend(report.get("findings", []))
     all_findings.extend(supply_chain.get("findings", []))
+    for report in research_reports.values():
+        all_findings.extend(report.get("findings", []))
 
     severity_counts: dict[str, int] = {}
     for finding in all_findings:
@@ -173,7 +221,10 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
                 "target": target,
                 "analysis_target": analysis_target,
                 "diff": str(Path(diff_path).resolve()) if diff_path else None,
-                "delegated_in_parallel": list(AGENTS),
+                "delegated_in_parallel": {
+                    "domain_agents": list(AGENTS),
+                    "research_agents": list(RESEARCH_AGENTS),
+                },
                 "hierarchy": {
                     "main": "Main Orchestrator Agent",
                     "domain_agents": {
@@ -184,6 +235,13 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
                         for agent, report in domain_reports.items()
                     },
                     "shared_worker": "Unified Supply Chain Worker",
+                    "research_layer": {
+                        "name": "Orchestrator Research Layer",
+                        "agents": {
+                            research_type: RESEARCH_AGENTS[research_type][2]
+                            for research_type in RESEARCH_AGENTS
+                        },
+                    },
                 },
             },
         },
@@ -191,6 +249,7 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
             "status": "completed"
             if all(report.get("status") == "completed" for report in domain_reports.values())
             and supply_chain.get("status") == "completed"
+            and all(report.get("status") == "completed" for report in research_reports.values())
             else "completed_with_errors",
             "total_findings": len(all_findings),
             "severity_counts": severity_counts,
@@ -203,10 +262,32 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
                 ["Unified Supply Chain Worker"]
                 if supply_chain.get("status") != "completed"
                 else []
-            ),
+            )
+            + [
+                report.get("display_name", report.get("research_type", "research"))
+                for report in research_reports.values()
+                if report.get("status") != "completed"
+            ],
         },
         "agents": domain_reports,
         "supply_chain": supply_chain,
+        "research_layer": {
+            "name": "Orchestrator Research Layer",
+            "status": "completed"
+            if all(report.get("status") == "completed" for report in research_reports.values())
+            else "completed_with_errors",
+            "agents": research_reports,
+            "hierarchy": {
+                "parent": "Orchestrator Research Layer",
+                "children": {
+                    research_type: {
+                        "name": RESEARCH_AGENTS[research_type][2],
+                        "tool": RESEARCH_AGENTS[research_type][1],
+                    }
+                    for research_type in RESEARCH_AGENTS
+                },
+            },
+        },
         "findings": all_findings,
     }
 

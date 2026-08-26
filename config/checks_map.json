@@ -28,6 +28,30 @@
       "requirements.txt"
     ]
   },
+  "research_layer": {
+    "name": "Orchestrator Research Layer",
+    "agents": {
+      "taint": {
+        "name": "Semantic Flow & Taint Engine",
+        "server": "mcp_servers.taint_agent",
+        "tool": "audit_taint",
+        "sandbox_operation": "research:taint"
+      },
+      "business_logic": {
+        "name": "Context-Aware Business Logic Evaluator",
+        "server": "mcp_servers.business_logic_agent",
+        "tool": "audit_business_logic",
+        "sandbox_operation": "research:business-logic"
+      },
+      "safe_poc": {
+        "name": "Automated Exploit Proof-of-Concept Generator",
+        "server": "mcp_servers.poc_agent",
+        "tool": "generate_safe_poc",
+        "sandbox_operation": "research:safe-poc",
+        "safety": "non-executing local proof blueprints only"
+      }
+    }
+  },
   "checks": [
     {
       "id": "01",

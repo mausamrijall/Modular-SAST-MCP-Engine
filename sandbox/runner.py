@@ -30,6 +30,7 @@ def run_sandboxed(
     agent: str | None = None,
     check_ids: list[str] | None = None,
     requested_by: list[str] | None = None,
+    research_kind: str | None = None,
     timeout_seconds: int = 180,
 ) -> dict[str, Any]:
     target = Path(target_path).expanduser().resolve()
@@ -71,6 +72,8 @@ def run_sandboxed(
     ]
     if agent:
         command.extend(["--agent", agent])
+    if research_kind:
+        command.extend(["--research-kind", research_kind])
 
     try:
         completed = subprocess.run(
@@ -98,13 +101,15 @@ def run_sandboxed(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one SAST operation in Docker")
     parser.add_argument("target_path")
-    parser.add_argument("--operation", choices=("audit", "supply-chain"), default="audit")
+    parser.add_argument("--operation", choices=("audit", "supply-chain", "research"), default="audit")
+    parser.add_argument("--research-kind", choices=("taint", "business-logic", "safe-poc"))
     parser.add_argument("--agent", choices=("secrets", "injection", "infra"))
     args = parser.parse_args()
     result = run_sandboxed(
         args.target_path,
         operation=args.operation,
         agent=args.agent,
+        research_kind=args.research_kind,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

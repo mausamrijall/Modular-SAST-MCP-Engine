@@ -50,6 +50,23 @@ Main Orchestrator Agent
     └── requirements.txt
 ```
 
+The orchestrator also runs a parallel research layer:
+
+```text
+Orchestrator Research Layer
+├── Semantic Flow & Taint Engine
+│   └── audit_taint(target_path)
+├── Context-Aware Business Logic Evaluator
+│   └── audit_business_logic(target_path)
+└── Automated Exploit Proof-of-Concept Generator
+    └── generate_safe_poc(target_path)
+```
+
+The first two research servers return source-to-sink and business-control
+evidence. The PoC server turns that evidence into local-only verification
+blueprints. It does not generate exploit payloads, send network requests,
+execute target code, or mutate the target.
+
 ## Project layout
 
 | Path | Purpose |
@@ -66,6 +83,7 @@ Main Orchestrator Agent
 | `sandbox/runner.py` | Docker isolation boundary |
 | `sandbox/worker.py` | In-container worker entrypoint |
 | `sandbox/analysis.py` | AST, regex, filename, and dependency analysis |
+| `sandbox/research.py` | Taint flows, business-logic context, and safe PoC blueprint generation |
 | `config/checks_map.json` | Source of truth for all 36 categories and routing rules |
 
 ## Requirements
@@ -141,6 +159,14 @@ Each parent exposes one domain tool:
 | Agent B | `audit_injection(target_path)` |
 | Agent C | `audit_infra(target_path)` |
 
+The research layer exposes three additional MCP tools:
+
+| Research server | Tool |
+| --- | --- |
+| Semantic Flow & Taint Engine | `audit_taint(target_path)` |
+| Context-Aware Business Logic Evaluator | `audit_business_logic(target_path)` |
+| Automated Exploit Proof-of-Concept Generator | `generate_safe_poc(target_path)` |
+
 Each check child exposes:
 
 ```text
@@ -195,6 +221,7 @@ The orchestrator writes a JSON report containing:
 - Remediation guidance
 - Severity totals
 - Unified supply-chain findings
+- Research-layer findings, taint paths, business-logic evidence, and safe PoC blueprints
 
 Example finding shape:
 
@@ -240,6 +267,14 @@ not silently scan source code outside the sandbox.
 
 Finding snippets redact common secret-shaped values before they leave the
 worker.
+
+## Research layer safety
+
+Research workers use the same Docker boundary as the 36 static checks. The
+taint and business-logic engines perform local source analysis only. The
+automated PoC generator is deliberately non-executing: it produces a
+reproducible test plan with a benign `TEST_MARKER_123` value and placeholder
+request metadata for a disposable local fixture.
 
 ## Development checks
 
