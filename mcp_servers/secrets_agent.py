@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from mcp_servers.common import required_target_schema, serve_mcp
-from sandbox.runner import run_sandboxed
+from mcp_servers.domain_runtime import audit_domain
 
 
 def audit_secrets(target_path: str) -> dict:
     """Audit secrets, identity, authorization, sessions, and credential hygiene."""
-    return run_sandboxed(target_path, operation="audit", agent="secrets")
+    return audit_domain(target_path, "secrets", "Agent A: Secrets & Identity Agent")
 
 
 def main() -> None:

@@ -6,11 +6,11 @@ engine with a parent/child reporting hierarchy:
 ```text
 Main Orchestrator Agent (map/router)
 ├── Agent A: Secrets & Identity Agent
-│   └── check-specific sub-agents for categories 1-7, 11, 13-14, 24-26, 30
+│   └── executable MCP child server for each category: 1-7, 11, 13-14, 24-26, 30
 ├── Agent B: Input & Injection Agent
-│   └── check-specific sub-agents for categories 16-23, 31, 33-34
+│   └── executable MCP child server for each category: 16-23, 31, 33-34
 ├── Agent C: Infra & Client Agent
-│   └── check-specific sub-agents for categories 8-10, 12, 15, 27-29, 32, 35-36
+│   └── executable MCP child server for each category: 8-10, 12, 15, 27-29, 32, 35-36
 └── Unified Supply Chain Worker
     └── package.json, composer.json, requirements.txt
 ```
@@ -51,14 +51,23 @@ agent's sub-agent status, and the unified supply-chain report.
 
 ## Run one MCP server
 
-Each server uses newline-delimited JSON-RPC 2.0 over stdio and exposes
-`initialize`, `tools/list`, `tools/call`, and `ping`.
+Each parent and child server uses newline-delimited JSON-RPC 2.0 over stdio and
+exposes `initialize`, `tools/list`, `tools/call`, and `ping`. Domain parents
+spawn check children with `python -m mcp_servers.check_agent`; every child
+exposes the executable `audit_check` tool and returns its own report to its
+parent.
 
 ```bash
 python -m mcp_servers.secrets_agent
 python -m mcp_servers.injection_agent
 python -m mcp_servers.infra_agent
 python -m mcp_servers.supply_chain_agent
+```
+
+The check child is also directly executable:
+
+```bash
+python -m mcp_servers.check_agent --parent-agent secrets --check-id 01
 ```
 
 ## Isolation guarantees

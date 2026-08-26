@@ -40,7 +40,8 @@ An open-source, read-only SAST engine that routes 36 defensive checks through MC
 ## Architecture decisions
 
 - Domain workers use stdio JSON-RPC with MCP-compatible `initialize`, `tools/list`, and `tools/call` methods, avoiding a mandatory SDK dependency.
-- The parent orchestrator starts the three domain workers in parallel, then sends their dependency inventory to one unified supply-chain worker.
+- The parent orchestrator starts the three domain workers in parallel; each domain worker starts one MCP child server per configured check, and the orchestrator then sends their dependency inventory to one unified supply-chain worker.
+- Every check child exposes the executable `audit_check` tool and reports its result to its domain parent before the domain parent reports upward.
 - Analysis is fail-closed on Docker availability; no host-execution fallback is provided.
 - Findings redact credential-shaped values before returning snippets in reports.
 
