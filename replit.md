@@ -1,6 +1,6 @@
-# [Project name]
+# Modular SAST MCP Engine
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An open-source, read-only SAST engine that routes 36 defensive checks through MCP-style domain workers.
 
 ## Run & Operate
 
@@ -10,6 +10,14 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+
+## SAST CLI
+
+- `python -m orchestrator.map_agent /path/to/repository --output audit.json` — run the complete isolated audit
+- `python -m mcp_servers.secrets_agent` — start Agent A over stdio JSON-RPC
+- `python -m mcp_servers.injection_agent` — start Agent B over stdio JSON-RPC
+- `python -m mcp_servers.infra_agent` — start Agent C over stdio JSON-RPC
+- `python -m mcp_servers.supply_chain_agent` — start the shared dependency worker
 
 ## Stack
 
@@ -22,11 +30,19 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `orchestrator/map_agent.py` — parent map/router and parallel MCP client
+- `mcp_servers/` — Agent A, Agent B, Agent C, and the shared supply-chain worker
+- `sandbox/runner.py` — Docker isolation boundary
+- `sandbox/analysis.py` — analysis logic executed only inside the sandbox
+- `config/checks_map.json` — all 36 routed categories and default rule definitions
+- `README_SAST.md` — usage, protocol, and isolation documentation
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Domain workers use stdio JSON-RPC with MCP-compatible `initialize`, `tools/list`, and `tools/call` methods, avoiding a mandatory SDK dependency.
+- The parent orchestrator starts the three domain workers in parallel, then sends their dependency inventory to one unified supply-chain worker.
+- Analysis is fail-closed on Docker availability; no host-execution fallback is provided.
+- Findings redact credential-shaped values before returning snippets in reports.
 
 ## Product
 

@@ -1,0 +1,538 @@
+{
+  "schema_version": "1.0",
+  "description": "Routing and default inspection rules for the 36 defensive SAST categories.",
+  "agents": {
+    "secrets": {
+      "name": "Agent A: Secrets & Identity Agent",
+      "server": "mcp_servers.secrets_agent",
+      "tool": "audit_secrets"
+    },
+    "injection": {
+      "name": "Agent B: Input & Injection Agent",
+      "server": "mcp_servers.injection_agent",
+      "tool": "audit_injection"
+    },
+    "infra": {
+      "name": "Agent C: Infra & Client Agent",
+      "server": "mcp_servers.infra_agent",
+      "tool": "audit_infra"
+    }
+  },
+  "supply_chain": {
+    "name": "Unified Supply Chain Worker",
+    "server": "mcp_servers.supply_chain_agent",
+    "tool": "audit_supply_chain",
+    "dependency_files": [
+      "package.json",
+      "composer.json",
+      "requirements.txt"
+    ]
+  },
+  "checks": [
+    {
+      "id": "01",
+      "name": "DB Credentials",
+      "agent": "secrets",
+      "description": "Database connection strings or credential-shaped values may be embedded in source.",
+      "default_rule": {
+        "rule_id": "database-credential-literal",
+        "kind": "regex",
+        "severity": "critical",
+        "confidence": "high",
+        "patterns": ["(?i)(postgres|mysql|mongodb|redis)(?:ql)?://[^\\s\"']+:[^\\s\"']+@", "(?i)(db[_-]?(password|user|secret)|database_url)\\s*[:=]"],
+        "remediation": "Move database credentials to a managed secret store, rotate exposed values, and use least-privilege accounts."
+      }
+    },
+    {
+      "id": "02",
+      "name": ".env Files",
+      "agent": "secrets",
+      "description": "Environment files can contain deployable secrets and should not be committed.",
+      "default_rule": {
+        "rule_id": "environment-file-present",
+        "kind": "filename",
+        "severity": "high",
+        "confidence": "high",
+        "filenames": [".env", ".env.local", ".env.production", ".env.development"],
+        "remediation": "Remove secret-bearing environment files from source control, add safe templates, and rotate any exposed values."
+      }
+    },
+    {
+      "id": "03",
+      "name": "Hardcoded Secrets",
+      "agent": "secrets",
+      "description": "Credential and API-token patterns should not be hardcoded.",
+      "default_rule": {
+        "rule_id": "hardcoded-secret",
+        "kind": "regex",
+        "severity": "critical",
+        "confidence": "medium",
+        "patterns": ["(?i)(api[_-]?key|secret[_-]?key|access[_-]?token|client[_-]?secret)\\s*[:=]\\s*[\"'][^\"']{8,}", "\\b(?:ghp_|github_pat_|sk_live_|AKIA)[A-Za-z0-9_-]{12,}\\b"],
+        "remediation": "Use runtime-injected secrets, redact them from history, and rotate the affected credential."
+      }
+    },
+    {
+      "id": "04",
+      "name": "Weak Auth",
+      "agent": "secrets",
+      "description": "Authentication code may accept weak or bypassable credentials.",
+      "default_rule": {
+        "rule_id": "weak-authentication",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(password|passwd).{0,30}(==|===|equals\\s*\\().{0,30}[\"'](?:password|admin|123456|test)[\"']", "(?i)if\\s+.*(auth|authenticated|is_admin)\\s*:\\s*return\\s+(true|1)"],
+        "remediation": "Use a vetted identity provider or strong password hashing with MFA and explicit failure handling."
+      }
+    },
+    {
+      "id": "05",
+      "name": "Missing Authz",
+      "agent": "secrets",
+      "description": "Sensitive route handlers may lack an authorization guard.",
+      "default_rule": {
+        "rule_id": "missing-authorization-guard",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "low",
+        "patterns": ["(?i)(app|router)\\.(get|post|put|patch|delete)\\s*\\([^\\n]*(admin|user|account|billing|private)", "(?i)@(?:app|router)\\.(get|post|put|delete).*?(admin|account|private)"],
+        "remediation": "Enforce server-side authorization for every sensitive operation and verify the resource owner."
+      }
+    },
+    {
+      "id": "06",
+      "name": "Cross-User Access",
+      "agent": "secrets",
+      "description": "Object access may be performed without binding the record to the authenticated user.",
+      "default_rule": {
+        "rule_id": "cross-user-access",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "low",
+        "patterns": ["(?i)(findById|findOne|select\\s+\\*|where\\s+id\\s*=).{0,80}(req\\.(params|query)|path\\.?id)", "(?i)user_id\\s*=\\s*(req\\.(params|query)|body\\.)"],
+        "remediation": "Constrain every object lookup by the authenticated principal or an explicit policy decision."
+      }
+    },
+    {
+      "id": "07",
+      "name": "Open DB Permissions",
+      "agent": "secrets",
+      "description": "Database access configuration may grant broad or anonymous permissions.",
+      "default_rule": {
+        "rule_id": "open-database-permissions",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(grant\\s+all|public\\s*=\\s*true|allow_anonymous|anonymous_access)", "(?i)(read|write|admin).{0,20}(true|\\*)"],
+        "remediation": "Apply least privilege, separate read/write roles, and deny anonymous database access by default."
+      }
+    },
+    {
+      "id": "08",
+      "name": "Cloud Misconfiguration",
+      "agent": "infra",
+      "description": "Cloud resources may be configured for public or overly broad access.",
+      "default_rule": {
+        "rule_id": "cloud-public-access",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(public-read|public-read-write|0\\.0\\.0\\.0/0|allUsers|publicAccess)"],
+        "remediation": "Restrict network and storage policies to required principals and private endpoints."
+      }
+    },
+    {
+      "id": "09",
+      "name": "Admin Routes",
+      "agent": "infra",
+      "description": "Administrative endpoints require strong authentication and authorization.",
+      "default_rule": {
+        "rule_id": "administrative-route",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(/admin|/administrator|/manage|/internal)"],
+        "remediation": "Protect admin routes with centralized authorization, network controls, MFA, and audit logging."
+      }
+    },
+    {
+      "id": "10",
+      "name": "Debug Tools",
+      "agent": "infra",
+      "description": "Debug consoles and development switches should not be exposed in production.",
+      "default_rule": {
+        "rule_id": "debug-tool-enabled",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(debug\\s*[:=]\\s*true|DEBUG\\s*=\\s*1|werkzeug\\.debug|enable_debug|devtools)"],
+        "remediation": "Disable debug tooling in production and gate diagnostics behind authenticated, private controls."
+      }
+    },
+    {
+      "id": "11",
+      "name": "Log Leaks",
+      "agent": "secrets",
+      "description": "Logs may include passwords, tokens, authorization headers, or personal data.",
+      "default_rule": {
+        "rule_id": "sensitive-value-logging",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "high",
+        "patterns": ["(?i)(console\\.log|logger\\.(info|debug|error)|print\\s*\\().{0,100}(password|token|secret|authorization|cookie|credit[_-]?card)"],
+        "remediation": "Log structured event metadata only, redact sensitive fields, and apply retention and access controls."
+      }
+    },
+    {
+      "id": "12",
+      "name": "Verbose Errors",
+      "agent": "infra",
+      "description": "Error responses may expose stack traces or internal implementation details.",
+      "default_rule": {
+        "rule_id": "verbose-error-response",
+        "kind": "regex",
+        "severity": "medium",
+        "confidence": "medium",
+        "patterns": ["(?i)(send|json|response).{0,30}(stack|stacktrace|traceback|exception)", "(?i)(DEBUG|show_errors|include_stack)\\s*[:=]\\s*true"],
+        "remediation": "Return stable public error codes and keep traces in protected server logs."
+      }
+    },
+    {
+      "id": "13",
+      "name": "Git Secrets",
+      "agent": "secrets",
+      "description": "Git metadata or credential artifacts should not be shipped or committed.",
+      "default_rule": {
+        "rule_id": "git-secret-artifact",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(\\.git/config|git_credentials|\\.npmrc|\\.pypirc)"],
+        "remediation": "Remove credential artifacts from commits, rotate exposed values, and enforce secret scanning in CI."
+      }
+    },
+    {
+      "id": "14",
+      "name": "JavaScript Secrets",
+      "agent": "secrets",
+      "description": "Browser-bundled JavaScript must not contain privileged secrets.",
+      "default_rule": {
+        "rule_id": "browser-secret",
+        "kind": "regex",
+        "severity": "critical",
+        "confidence": "medium",
+        "patterns": ["(?i)(api[_-]?key|secret|private[_-]?key|access[_-]?token)\\s*[:=]\\s*[\"'][^\"']{8,}"],
+        "remediation": "Keep privileged secrets on the server and expose only narrowly scoped public configuration."
+      }
+    },
+    {
+      "id": "15",
+      "name": "Client-only Security",
+      "agent": "infra",
+      "description": "Security decisions implemented only in client code can be bypassed.",
+      "default_rule": {
+        "rule_id": "client-only-authorization",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "low",
+        "patterns": ["(?i)(isAdmin|canAccess|hasPermission).{0,40}(localStorage|sessionStorage|window\\.)", "(?i)if\\s*\\(.*(isAdmin|authorized).{0,30}\\)\\s*\\{"],
+        "remediation": "Repeat all authorization decisions on the server; treat client state as untrusted presentation state."
+      }
+    },
+    {
+      "id": "16",
+      "name": "Input Validation",
+      "agent": "injection",
+      "description": "Untrusted request data may reach application logic without schema validation.",
+      "default_rule": {
+        "rule_id": "unvalidated-input",
+        "kind": "ast_or_regex",
+        "severity": "high",
+        "confidence": "low",
+        "patterns": ["(?i)(req\\.(body|query|params)|request\\.(args|form|json)|sys\\.argv)"],
+        "ast_events": ["dynamic execution via eval", "dynamic execution via exec"],
+        "remediation": "Validate type, length, format, and allowed values at the trust boundary using a strict schema."
+      }
+    },
+    {
+      "id": "17",
+      "name": "SQL Injection",
+      "agent": "injection",
+      "description": "SQL statements may be assembled from untrusted input.",
+      "default_rule": {
+        "rule_id": "sql-string-concatenation",
+        "kind": "ast_or_regex",
+        "severity": "critical",
+        "confidence": "high",
+        "patterns": ["(?i)(execute|query|raw|sequelize\\.query)\\s*\\([^\\n]*(\\+|f[\"']|%\\s)"],
+        "remediation": "Use parameterized queries or a safe query builder and validate identifiers separately."
+      }
+    },
+    {
+      "id": "18",
+      "name": "NoSQL Injection",
+      "agent": "injection",
+      "description": "User-controlled objects may be passed directly into NoSQL selectors.",
+      "default_rule": {
+        "rule_id": "nosql-operator-input",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(find|findOne|updateOne|deleteOne)\\s*\\([^\\n]*(req\\.(body|query)|request\\.)", "(?i)(\\$where|\\$regex|\\$ne|\\$gt).{0,40}(req|request|input)"],
+        "remediation": "Allowlist selector fields and operators, reject object-shaped user input where scalar input is expected."
+      }
+    },
+    {
+      "id": "19",
+      "name": "Cross-Site Scripting",
+      "agent": "injection",
+      "description": "Untrusted content may be inserted into an HTML or script context.",
+      "default_rule": {
+        "rule_id": "unsafe-html-sink",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(innerHTML|outerHTML|insertAdjacentHTML|dangerouslySetInnerHTML)\\s*=", "(?i)(document\\.write|\\.html\\s*\\()"],
+        "remediation": "Use contextual output encoding and safe DOM APIs; sanitize only with a maintained allowlist sanitizer."
+      }
+    },
+    {
+      "id": "20",
+      "name": "CSRF",
+      "agent": "injection",
+      "description": "State-changing browser requests may lack CSRF protection.",
+      "default_rule": {
+        "rule_id": "missing-csrf-signal",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "low",
+        "patterns": ["(?i)(app|router)\\.(post|put|patch|delete)\\s*\\(", "(?i)fetch\\s*\\([^\\n]*(method\\s*:\\s*[\"'](POST|PUT|PATCH|DELETE))"],
+        "remediation": "Use SameSite cookies plus framework CSRF tokens or a proven same-origin request defense."
+      }
+    },
+    {
+      "id": "21",
+      "name": "Insecure Uploads",
+      "agent": "injection",
+      "description": "Uploaded content may be stored or served without type, size, and execution controls.",
+      "default_rule": {
+        "rule_id": "unrestricted-upload",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(upload|multipart|file).{0,80}(save|write|copy|move)", "(?i)(filename|originalname).{0,40}(path\\.join|writeFile|open\\s*\\()"],
+        "remediation": "Allowlist content types, enforce size limits, randomize names, store outside executable paths, and scan content."
+      }
+    },
+    {
+      "id": "22",
+      "name": "Path Traversal",
+      "agent": "injection",
+      "description": "User-controlled paths may escape the intended directory.",
+      "default_rule": {
+        "rule_id": "untrusted-path",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(readFile|open|sendFile|unlink|path\\.join|resolve)\\s*\\([^\\n]*(req\\.|request\\.|params|query|filename)", "(?i)(\\.\\./|path\\.normalize).{0,50}(req|request|input)"],
+        "remediation": "Resolve against a fixed root, verify the resulting path remains within it, and reject traversal segments."
+      }
+    },
+    {
+      "id": "23",
+      "name": "SSRF",
+      "agent": "injection",
+      "description": "Server-side network requests may target attacker-controlled destinations.",
+      "default_rule": {
+        "rule_id": "user-controlled-url-fetch",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(fetch|axios|requests\\.(get|post)|urllib\\.request|http\\.request)\\s*\\([^\\n]*(req\\.|request\\.|params|query|url)"],
+        "remediation": "Use destination allowlists, block private/link-local ranges after DNS resolution, and restrict redirects."
+      }
+    },
+    {
+      "id": "24",
+      "name": "Password Reset",
+      "agent": "secrets",
+      "description": "Password reset flows may use predictable or reusable tokens.",
+      "default_rule": {
+        "rule_id": "weak-password-reset",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(reset|password).{0,40}(token|code).{0,40}(timestamp|user_id|random\\.random)", "(?i)(reset_token|password_reset).{0,50}(==|===).{0,50}(user|email)"],
+        "remediation": "Use short-lived, single-use, high-entropy reset tokens and avoid account-existence disclosure."
+      }
+    },
+    {
+      "id": "25",
+      "name": "Weak Sessions",
+      "agent": "secrets",
+      "description": "Session cookies or identifiers may lack secure transport and lifecycle settings.",
+      "default_rule": {
+        "rule_id": "weak-session-cookie",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(setCookie|cookie).{0,100}(secure\\s*:\\s*false|httpOnly\\s*:\\s*false|sameSite\\s*:\\s*[\"']none)", "(?i)session_secret\\s*[:=]\\s*[\"'][^\"']{1,15}[\"']"],
+        "remediation": "Set Secure, HttpOnly, and appropriate SameSite flags; rotate sessions after authentication and privilege changes."
+      }
+    },
+    {
+      "id": "26",
+      "name": "JWT Secrets",
+      "agent": "secrets",
+      "description": "JWT signing may use weak, hardcoded, or algorithm-confusable secrets.",
+      "default_rule": {
+        "rule_id": "weak-jwt-signing",
+        "kind": "regex",
+        "severity": "critical",
+        "confidence": "high",
+        "patterns": ["(?i)(jwt|jsonwebtoken).{0,80}(secret|key).{0,30}[\"'](?:secret|test|changeme|password)[\"']", "(?i)(algorithm|alg).{0,20}[\"']none[\"']"],
+        "remediation": "Use managed signing keys, an explicit algorithm allowlist, key rotation, and strict issuer/audience validation."
+      }
+    },
+    {
+      "id": "27",
+      "name": "CORS",
+      "agent": "infra",
+      "description": "Cross-origin policy may allow arbitrary origins with credentials.",
+      "default_rule": {
+        "rule_id": "permissive-cors",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "high",
+        "patterns": ["(?i)(Access-Control-Allow-Origin|origin).{0,50}[\"']\\*[\"']", "(?i)(credentials|supports_credentials).{0,20}(true|1)"],
+        "remediation": "Use an explicit origin allowlist and never combine wildcard origins with credentials."
+      }
+    },
+    {
+      "id": "28",
+      "name": "Rate Limits",
+      "agent": "infra",
+      "description": "Abuse-sensitive endpoints may lack throttling or lockout controls.",
+      "default_rule": {
+        "rule_id": "missing-rate-limit-signal",
+        "kind": "regex",
+        "severity": "medium",
+        "confidence": "low",
+        "patterns": ["(?i)(login|signin|password|reset|otp|webhook).{0,40}(app|router)\\.(post|put)", "(?i)(rateLimit|throttle|slowDown)\\s*[:=]\\s*(false|null)"],
+        "remediation": "Apply per-IP and per-account limits, exponential backoff, and monitoring to abuse-sensitive operations."
+      }
+    },
+    {
+      "id": "29",
+      "name": "Exposed Environments",
+      "agent": "infra",
+      "description": "Build or runtime environment values may be exposed to untrusted clients.",
+      "default_rule": {
+        "rule_id": "exposed-environment",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(window\\.__ENV__|window\\.env|import\\.meta\\.env|process\\.env).{0,80}(secret|token|password|private|key)"],
+        "remediation": "Expose only intentionally public configuration and keep secret environment variables server-side."
+      }
+    },
+    {
+      "id": "30",
+      "name": "Default Credentials",
+      "agent": "secrets",
+      "description": "Default administrative credentials or example passwords may remain enabled.",
+      "default_rule": {
+        "rule_id": "default-credential",
+        "kind": "regex",
+        "severity": "critical",
+        "confidence": "high",
+        "patterns": ["(?i)(password|passwd|username).{0,30}[:=].{0,10}[\"'](?:admin|root|password|changeme|123456|test)[\"']"],
+        "remediation": "Force unique credentials at provisioning and fail closed when defaults are detected."
+      }
+    },
+    {
+      "id": "31",
+      "name": "Unsigned Webhooks",
+      "agent": "injection",
+      "description": "Webhook receivers may process requests without authenticity verification.",
+      "default_rule": {
+        "rule_id": "unsigned-webhook",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "low",
+        "patterns": ["(?i)(webhook|callback).{0,100}(req\\.body|request\\.json|payload)", "(?i)(webhook).{0,80}(verify|signature|hmac).{0,20}(false|null|undefined)"],
+        "remediation": "Verify provider signatures over the raw body, enforce replay protection, and reject unsigned requests."
+      }
+    },
+    {
+      "id": "32",
+      "name": "Frontend Payment Checks",
+      "agent": "infra",
+      "description": "Payment authorization or amount decisions must not be trusted from frontend state.",
+      "default_rule": {
+        "rule_id": "client-payment-authority",
+        "kind": "regex",
+        "severity": "critical",
+        "confidence": "medium",
+        "patterns": ["(?i)(price|amount|currency|discount).{0,60}(localStorage|sessionStorage|window\\.|document\\.)", "(?i)(stripe|payment|checkout).{0,100}(secret|private|sk_live)"],
+        "remediation": "Calculate prices and authorize payment server-side; keep private payment keys out of browser bundles."
+      }
+    },
+    {
+      "id": "33",
+      "name": "IDOR / BOLA",
+      "agent": "injection",
+      "description": "API object identifiers may be accepted without ownership or policy checks.",
+      "default_rule": {
+        "rule_id": "object-level-authorization",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "low",
+        "patterns": ["(?i)(/:id|/\\{id\\}|params\\.id|query\\.id).{0,100}(findById|findOne|update|delete)", "(?i)(get|put|patch|delete).{0,40}(resource|invoice|order|user).{0,40}id"],
+        "remediation": "Authorize access to the specific object using the authenticated principal and tenant boundary."
+      }
+    },
+    {
+      "id": "34",
+      "name": "APIs + Input",
+      "agent": "injection",
+      "description": "Public APIs should validate request shape and reject unexpected fields.",
+      "default_rule": {
+        "rule_id": "api-input-schema",
+        "kind": "regex",
+        "severity": "medium",
+        "confidence": "low",
+        "patterns": ["(?i)(app|router)\\.(post|put|patch)\\s*\\([^\\n]*\\)", "(?i)(req\\.body|request\\.json|request\\.form).{0,40}(insert|create|update|save)"],
+        "remediation": "Use allowlisted request schemas, reject unknown properties, and validate content type and size."
+      }
+    },
+    {
+      "id": "35",
+      "name": "Exposed Logs",
+      "agent": "infra",
+      "description": "Log files, logging endpoints, or log storage may be publicly reachable.",
+      "default_rule": {
+        "rule_id": "public-log-exposure",
+        "kind": "regex",
+        "severity": "high",
+        "confidence": "medium",
+        "patterns": ["(?i)(/logs?|logfile|access\\.log|error\\.log)", "(?i)(static|public|express\\.static).{0,60}(logs?|/var/log)"],
+        "remediation": "Keep logs in private storage, restrict access, and avoid serving operational files as static assets."
+      }
+    },
+    {
+      "id": "36",
+      "name": "Source Maps",
+      "agent": "infra",
+      "description": "Production source maps may reveal proprietary or security-sensitive source.",
+      "default_rule": {
+        "rule_id": "production-source-map",
+        "kind": "filename",
+        "severity": "medium",
+        "confidence": "high",
+        "filenames": [".map", "bundle.js.map", "main.js.map"],
+        "remediation": "Keep source maps private or upload them only to protected error-monitoring systems."
+      }
+    }
+  ]
+}
