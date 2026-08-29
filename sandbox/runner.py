@@ -21,6 +21,7 @@ class SandboxError(RuntimeError):
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DOCKER_IMAGE = os.environ.get("SAST_SANDBOX_IMAGE", "python:3.12-slim")
+DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("SAST_SANDBOX_TIMEOUT", "180"))
 
 
 def run_sandboxed(
@@ -35,8 +36,10 @@ def run_sandboxed(
     sink_function: str | None = None,
     check_id: str | None = None,
     vulnerability_details: dict[str, Any] | None = None,
-    timeout_seconds: int = 180,
+    timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
+    if timeout_seconds is None:
+        timeout_seconds = DEFAULT_TIMEOUT_SECONDS
     target = Path(target_path).expanduser().resolve()
     if not target.exists():
         raise SandboxError(f"Target does not exist: {target}")

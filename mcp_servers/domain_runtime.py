@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from mcp_servers.sub_agent_client import StdioMcpClient
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "checks_map.json"
 SUB_AGENT_MODULE = "mcp_servers.check_agent"
+MAX_WORKERS = int(os.environ.get("SAST_MAX_WORKERS", "8"))
 
 
 def _checks_for_agent(agent: str) -> list[dict[str, Any]]:
@@ -66,7 +68,7 @@ def audit_domain(target_path: str, agent: str, display_name: str) -> dict[str, A
     checks = _checks_for_agent(agent)
     child_reports: dict[str, dict[str, Any]] = {}
     with ThreadPoolExecutor(
-        max_workers=min(8, max(1, len(checks))),
+        max_workers=min(MAX_WORKERS, max(1, len(checks))),
         thread_name_prefix=f"{agent}-sub-agent",
     ) as executor:
         futures = {
