@@ -124,6 +124,8 @@ def _finding(
         "rule": rule_name or rule.get("rule_id", "configured-rule"),
         "description": rule.get("description", check.get("description", "")),
         "remediation": rule.get("remediation", "Review this code path and apply the least-privilege secure alternative."),
+        "taint_path": [],
+        "poc_payload": None,
     }
 
 
@@ -299,6 +301,8 @@ def _supply_finding(
         "rule": rule,
         "description": description,
         "remediation": remediation,
+        "taint_path": [],
+        "poc_payload": None,
     }
 
 

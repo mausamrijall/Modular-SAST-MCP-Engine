@@ -31,6 +31,10 @@ def run_sandboxed(
     check_ids: list[str] | None = None,
     requested_by: list[str] | None = None,
     research_kind: str | None = None,
+    source_file: str | None = None,
+    sink_function: str | None = None,
+    check_id: str | None = None,
+    vulnerability_details: dict[str, Any] | None = None,
     timeout_seconds: int = 180,
 ) -> dict[str, Any]:
     target = Path(target_path).expanduser().resolve()
@@ -60,7 +64,8 @@ def run_sandboxed(
         "--workdir=/app",
         DOCKER_IMAGE,
         "python",
-        "/app/sandbox/worker.py",
+        "-m",
+        "sandbox.worker",
         "--operation",
         operation,
         "--target",
@@ -74,6 +79,14 @@ def run_sandboxed(
         command.extend(["--agent", agent])
     if research_kind:
         command.extend(["--research-kind", research_kind])
+    if source_file:
+        command.extend(["--source-file", source_file])
+    if sink_function:
+        command.extend(["--sink-function", sink_function])
+    if check_id:
+        command.extend(["--check-id", check_id])
+    if vulnerability_details is not None:
+        command.extend(["--vulnerability-details", json.dumps(vulnerability_details)])
 
     try:
         completed = subprocess.run(
@@ -82,7 +95,11 @@ def run_sandboxed(
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
-            env={"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1"},
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONPATH": "/app",
+            },
         )
     except FileNotFoundError as exc:
         raise SandboxError("Docker is required for analysis but was not found on PATH") from exc
@@ -101,15 +118,30 @@ def run_sandboxed(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run one SAST operation in Docker")
     parser.add_argument("target_path")
-    parser.add_argument("--operation", choices=("audit", "supply-chain", "research"), default="audit")
-    parser.add_argument("--research-kind", choices=("taint", "business-logic", "safe-poc"))
+    parser.add_argument(
+        "--operation",
+        choices=("audit", "supply-chain", "research", "trace", "poc"),
+        default="audit",
+    )
+    parser.add_argument(
+        "--research-kind",
+        choices=("taint", "business-logic", "logic-flaw", "safe-poc"),
+    )
     parser.add_argument("--agent", choices=("secrets", "injection", "infra"))
+    parser.add_argument("--source-file")
+    parser.add_argument("--sink-function")
+    parser.add_argument("--check-id")
+    parser.add_argument("--vulnerability-details")
     args = parser.parse_args()
     result = run_sandboxed(
         args.target_path,
         operation=args.operation,
         agent=args.agent,
         research_kind=args.research_kind,
+        source_file=args.source_file,
+        sink_function=args.sink_function,
+        check_id=args.check_id,
+        vulnerability_details=json.loads(args.vulnerability_details) if args.vulnerability_details else None,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from config.llm import LLMConfig
+from orchestrator import web_research
+
 
 class McpClientError(RuntimeError):
     """Raised when an MCP child process returns an error."""
@@ -91,14 +94,14 @@ AGENTS = {
 }
 
 RESEARCH_AGENTS = {
-    "taint": ("mcp_servers.taint_agent", "audit_taint", "Semantic Flow & Taint Engine"),
+    "taint": ("mcp_servers.taint_analyzer", "audit_taint", "Cross-File Taint Analyzer"),
     "business_logic": (
-        "mcp_servers.business_logic_agent",
-        "audit_business_logic",
-        "Context-Aware Business Logic Evaluator",
+        "mcp_servers.logic_flaw_agent",
+        "audit_logic_flaws",
+        "Business Logic & Authorization Engine",
     ),
     "safe_poc": (
-        "mcp_servers.poc_agent",
+        "mcp_servers.poc_generator",
         "generate_safe_poc",
         "Automated Exploit Proof-of-Concept Generator",
     ),
@@ -144,6 +147,59 @@ def _run_supply_chain(target_path: str, requested_by: list[str]) -> dict[str, An
         }
 
 
+def _load_agent_for_check(check_id: str) -> str | None:
+    """Return the domain-agent key owning ``check_id`` per the check map."""
+    checks_path = Path(__file__).resolve().parents[1] / "config" / "checks_map.json"
+    checks = json.loads(checks_path.read_text(encoding="utf-8")).get("checks", [])
+    for check in checks:
+        if check.get("id") == check_id:
+            return check.get("agent")
+    return None
+
+
+def _run_clarification(
+    module: str,
+    tool_name: str,
+    display_name: str,
+    check_id: str,
+    question: str,
+) -> dict[str, Any]:
+    """Ask one sub-agent a methodology question through its ``clarify`` tool."""
+    try:
+        with StdioMcpClient(module) as client:
+            client.request("tools/list")
+            return client.call_tool(
+                "clarify",
+                {"check_id": check_id, "question": question},
+            )
+    except Exception as exc:
+        return {
+            "agent": display_name,
+            "check_id": check_id,
+            "question": question,
+            "status": "failed",
+            "error": str(exc),
+        }
+
+
+def _run_web_research(
+    urls: list[str],
+    methodology_topic: str | None,
+) -> dict[str, Any]:
+    """Run the main agent's outbound research and methodology synthesis."""
+    topic = methodology_topic or "SAST methodology enrichment"
+    llm: LLMConfig | None = None
+    synthesis_status = "disabled"
+    try:
+        llm = LLMConfig.from_env()
+        synthesis_status = "enabled"
+    except ValueError:
+        synthesis_status = "llm-not-configured"
+    research = web_research.research_web(topic, urls, llm=llm)
+    research["synthesis_status"] = synthesis_status
+    return research
+
+
 def _run_research(research_type: str, target_path: str) -> dict[str, Any]:
     module, tool_name, display_name = RESEARCH_AGENTS[research_type]
     try:
@@ -163,11 +219,27 @@ def _run_research(research_type: str, target_path: str) -> dict[str, Any]:
         }
 
 
-def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[str, Any]:
+def build_audit_report(
+    target_path: str,
+    diff_path: str | None = None,
+    research_enabled: set[str] | None = None,
+    web_urls: list[str] | None = None,
+    methodology_topic: str | None = None,
+    clarify_check_ids: list[str] | None = None,
+    clarify_question: str = "",
+) -> dict[str, Any]:
     target = str(Path(target_path).expanduser().resolve())
     analysis_target = str(Path(diff_path).expanduser().resolve()) if diff_path else target
     if diff_path and not Path(analysis_target).is_file():
         raise FileNotFoundError(f"Diff does not exist or is not a file: {diff_path}")
+    if research_enabled is None:
+        research_agents = set(RESEARCH_AGENTS)
+    else:
+        research_agents = set(research_enabled) & set(RESEARCH_AGENTS)
+        # PoC blueprints are derived from taint and logic-flaw evidence, so
+        # requesting them pulls in their evidence producers.
+        if "safe_poc" in research_agents:
+            research_agents.update({"taint", "business_logic"})
     with ThreadPoolExecutor(max_workers=6, thread_name_prefix="research-layer") as executor:
         futures = {
             executor.submit(_run_domain, agent, analysis_target): ("domain", agent)
@@ -179,7 +251,7 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
                     "research",
                     research_type,
                 )
-                for research_type in RESEARCH_AGENTS
+                for research_type in sorted(research_agents)
             }
         )
         domain_reports: dict[str, dict[str, Any]] = {}
@@ -205,10 +277,42 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
     for report in research_reports.values():
         all_findings.extend(report.get("findings", []))
 
+    # Extended finding schema: guarantee every finding carries the optional
+    # taint_path and poc_payload fields, and attach the safe-PoC blueprints
+    # to the research findings they were generated for.
+    poc_by_finding: dict[str, str] = {}
+    safe_poc = research_reports.get("safe_poc") or {}
+    for proof in safe_poc.get("proofs", []):
+        source_id = proof.get("source_finding_id")
+        if source_id and proof.get("poc_payload"):
+            poc_by_finding[source_id] = proof["poc_payload"]
+    for finding in all_findings:
+        finding["taint_path"] = finding.get("taint_path") or []
+        finding["poc_payload"] = finding.get("poc_payload")
+        payload = poc_by_finding.get(finding.get("id"))
+        if payload:
+            finding["poc_payload"] = payload
+
     severity_counts: dict[str, int] = {}
     for finding in all_findings:
         severity = str(finding.get("severity", "unknown"))
         severity_counts[severity] = severity_counts.get(severity, 0) + 1
+
+    methodology_research: dict[str, Any] | None = None
+    if web_urls:
+        methodology_research = _run_web_research(web_urls, methodology_topic)
+
+    clarifications: list[dict[str, Any]] = []
+    for check_id in clarify_check_ids or []:
+        agent_key = _load_agent_for_check(check_id)
+        if agent_key and agent_key in AGENTS:
+            module, tool_name, display_name = AGENTS[agent_key]
+        else:
+            module, tool_name, display_name = RESEARCH_AGENTS["business_logic"]
+            display_name = f"{display_name} (fallback for unknown check)"
+        clarifications.append(
+            _run_clarification(module, tool_name, display_name, check_id, clarify_question)
+        )
 
     return {
         "schema_version": "1.0",
@@ -288,6 +392,8 @@ def build_audit_report(target_path: str, diff_path: str | None = None) -> dict[s
                 },
             },
         },
+        "methodology_research": methodology_research,
+        "clarifications": clarifications,
         "findings": all_findings,
     }
 
@@ -299,9 +405,58 @@ def main() -> int:
     parser.add_argument("target_path", help="Repository directory or a diff/source file")
     parser.add_argument("--diff", dest="diff_path", help="Optional diff file associated with the target")
     parser.add_argument("--output", "-o", help="Write the consolidated JSON report to this path")
+    parser.add_argument(
+        "--with-taint",
+        action="store_true",
+        help="Enable the cross-file taint analyzer research agent",
+    )
+    parser.add_argument(
+        "--with-poc",
+        action="store_true",
+        help="Enable safe proof-of-concept generation (also runs taint and logic-flaw evidence)",
+    )
+    parser.add_argument(
+        "--research-url",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="Public URL for the main agent to fetch for methodology research (repeatable)",
+    )
+    parser.add_argument(
+        "--methodology-topic",
+        help="Topic label attached to the main agent's web research",
+    )
+    parser.add_argument(
+        "--clarify",
+        action="append",
+        default=[],
+        metavar="CHECK_ID",
+        help="Ask the owning sub-agent a clarifying methodology question (repeatable)",
+    )
+    parser.add_argument(
+        "--clarify-question",
+        default="Explain the detection methodology and expected evidence for this check.",
+        help="Question text used for the --clarify requests",
+    )
     args = parser.parse_args()
 
-    report = build_audit_report(args.target_path, args.diff_path)
+    research_enabled: set[str] | None = None
+    if args.with_taint or args.with_poc:
+        research_enabled = set()
+        if args.with_taint:
+            research_enabled.add("taint")
+        if args.with_poc:
+            research_enabled.add("safe_poc")
+
+    report = build_audit_report(
+        args.target_path,
+        args.diff_path,
+        research_enabled,
+        web_urls=args.research_url or None,
+        methodology_topic=args.methodology_topic,
+        clarify_check_ids=args.clarify or None,
+        clarify_question=args.clarify_question,
+    )
     rendered = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         output_path = Path(args.output).expanduser().resolve()

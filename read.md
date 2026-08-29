@@ -54,24 +54,28 @@ The orchestrator also runs a parallel research layer:
 
 ```text
 Orchestrator Research Layer
-├── Semantic Flow & Taint Engine
+├── Cross-File Taint Analyzer
 │   └── audit_taint(target_path)
-├── Context-Aware Business Logic Evaluator
-│   └── audit_business_logic(target_path)
+├── Business Logic & Authorization Engine
+│   └── audit_logic_flaws(target_path)
 └── Automated Exploit Proof-of-Concept Generator
     └── generate_safe_poc(target_path)
 ```
 
-The first two research servers return source-to-sink and business-control
+The first two research servers return source-to-sink and authorization
 evidence. The PoC server turns that evidence into local-only verification
 blueprints. It does not generate exploit payloads, send network requests,
 execute target code, or mutate the target.
+
+> See `README.md` for the full, current guide (advanced research modules,
+> extended finding schema, and optional LLM connection).
 
 ## Project layout
 
 | Path | Purpose |
 | --- | --- |
 | `orchestrator/map_agent.py` | Main router, MCP client, parallel domain dispatch, and report aggregation |
+| `orchestrator/web_research.py` | Main-agent outbound research (web fetch + optional LLM methodology synthesis) |
 | `mcp_servers/secrets_agent.py` | Agent A parent MCP server |
 | `mcp_servers/injection_agent.py` | Agent B parent MCP server |
 | `mcp_servers/infra_agent.py` | Agent C parent MCP server |
@@ -84,7 +88,9 @@ execute target code, or mutate the target.
 | `sandbox/worker.py` | In-container worker entrypoint |
 | `sandbox/analysis.py` | AST, regex, filename, and dependency analysis |
 | `sandbox/research.py` | Taint flows, business-logic context, and safe PoC blueprint generation |
+| `sandbox/slicer.py` | AST context slicer and call-tree builder |
 | `config/checks_map.json` | Source of truth for all 36 categories and routing rules |
+| `config/llm.py` | Optional OpenAI-compatible LLM connection config |
 
 ## Requirements
 
@@ -123,6 +129,19 @@ Without `--output`, the report is printed to standard output:
 ```bash
 python -m orchestrator.map_agent /path/to/repository
 ```
+
+The main agent has outbound network access for methodology research and a
+`clarify` channel to its sub-agents. Sandbox workers stay on `--network=none`.
+
+```bash
+python -m orchestrator.map_agent /path/to/repository \
+  --research-url https://example.com/guide \
+  --methodology-topic "authz gap detection" \
+  --clarify 05 --clarify 33 \
+  --clarify-question "Which patterns fire this check?"
+```
+
+See `README.md` for the full guide.
 
 ## Running MCP servers
 
@@ -163,9 +182,9 @@ The research layer exposes three additional MCP tools:
 
 | Research server | Tool |
 | --- | --- |
-| Semantic Flow & Taint Engine | `audit_taint(target_path)` |
-| Context-Aware Business Logic Evaluator | `audit_business_logic(target_path)` |
-| Automated Exploit Proof-of-Concept Generator | `generate_safe_poc(target_path)` |
+| Cross-File Taint Analyzer | `audit_taint(target_path)`, `trace_dataflow(source_file, sink_function)` |
+| Business Logic & Authorization Engine | `audit_logic_flaws(target_path)` |
+| Automated Exploit Proof-of-Concept Generator | `generate_safe_poc(target_path)`, `generate_poc(check_id, vulnerability_details)` |
 
 Each check child exposes:
 

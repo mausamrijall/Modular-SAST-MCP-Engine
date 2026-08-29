@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mcp_servers.common import required_target_schema, serve_mcp
+from mcp_servers.common import build_check_clarifier, required_target_schema, serve_mcp
 from mcp_servers.domain_runtime import audit_domain
 
 
@@ -22,6 +22,7 @@ def main() -> None:
                 audit_infra,
             )
         },
+        clarify_handler=build_check_clarifier("infra"),
     )
 
 

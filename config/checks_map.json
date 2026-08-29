@@ -28,24 +28,68 @@
       "requirements.txt"
     ]
   },
+  "orchestrator_network": {
+    "description": "Only the main orchestrator agent makes outbound calls. Sandbox workers always run with --network=none.",
+    "web_research": {
+      "module": "orchestrator.web_research",
+      "flags": ["--research-url", "--methodology-topic"],
+      "bounded": "http/https only, 15s timeout, 256 KiB response cap",
+      "llm_synthesis": "optional via USER_LLM_PROVIDER/USER_LLM_BASE_URL/USER_LLM_API_KEY/USER_LLM_MODEL"
+    },
+    "clarify_protocol": {
+      "tool": "clarify",
+      "schema": {
+        "check_id": "string (check or research-kind identifier)",
+        "question": "string (free-form methodology question)"
+      },
+      "clients": [
+        "mcp_servers.secrets_agent",
+        "mcp_servers.injection_agent",
+        "mcp_servers.infra_agent",
+        "mcp_servers.taint_analyzer",
+        "mcp_servers.logic_flaw_agent",
+        "mcp_servers.poc_generator"
+      ]
+    }
+  },
   "research_layer": {
     "name": "Orchestrator Research Layer",
+    "advanced_tools": [
+      {
+        "name": "trace_dataflow",
+        "server": "mcp_servers.taint_analyzer",
+        "description": "Trace user-controlled data from a source file into a sink function, returning taint paths and sanitizer verdicts.",
+        "arguments": ["source_file", "sink_function"]
+      },
+      {
+        "name": "audit_logic_flaws",
+        "server": "mcp_servers.logic_flaw_agent",
+        "description": "Route, middleware, and ownership analysis for missing-authorization (05), idor/bola (06), and business-logic (33) flaws.",
+        "arguments": ["target_path"]
+      },
+      {
+        "name": "generate_poc",
+        "server": "mcp_servers.poc_generator",
+        "description": "Generate a non-executing curl/HTTP proof blueprint for a single finding.",
+        "arguments": ["check_id", "vulnerability_details"]
+      }
+    ],
     "agents": {
       "taint": {
-        "name": "Semantic Flow & Taint Engine",
-        "server": "mcp_servers.taint_agent",
+        "name": "Cross-File Taint Analyzer",
+        "server": "mcp_servers.taint_analyzer",
         "tool": "audit_taint",
         "sandbox_operation": "research:taint"
       },
       "business_logic": {
-        "name": "Context-Aware Business Logic Evaluator",
-        "server": "mcp_servers.business_logic_agent",
-        "tool": "audit_business_logic",
-        "sandbox_operation": "research:business-logic"
+        "name": "Business Logic & Authorization Engine",
+        "server": "mcp_servers.logic_flaw_agent",
+        "tool": "audit_logic_flaws",
+        "sandbox_operation": "research:logic-flaw"
       },
       "safe_poc": {
         "name": "Automated Exploit Proof-of-Concept Generator",
-        "server": "mcp_servers.poc_agent",
+        "server": "mcp_servers.poc_generator",
         "tool": "generate_safe_poc",
         "sandbox_operation": "research:safe-poc",
         "safety": "non-executing local proof blueprints only"
