@@ -36,6 +36,7 @@ def run_sandboxed(
     sink_function: str | None = None,
     check_id: str | None = None,
     vulnerability_details: dict[str, Any] | None = None,
+    findings: list[dict[str, Any]] | None = None,
     timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
     if timeout_seconds is None:
@@ -90,6 +91,8 @@ def run_sandboxed(
         command.extend(["--check-id", check_id])
     if vulnerability_details is not None:
         command.extend(["--vulnerability-details", json.dumps(vulnerability_details)])
+    if findings is not None:
+        command.extend(["--findings", json.dumps(findings)])
 
     try:
         completed = subprocess.run(
@@ -123,7 +126,7 @@ def main() -> int:
     parser.add_argument("target_path")
     parser.add_argument(
         "--operation",
-        choices=("audit", "supply-chain", "research", "trace", "poc"),
+        choices=("audit", "supply-chain", "research", "trace", "poc", "verify-poc", "behavior"),
         default="audit",
     )
     parser.add_argument(
@@ -135,6 +138,7 @@ def main() -> int:
     parser.add_argument("--sink-function")
     parser.add_argument("--check-id")
     parser.add_argument("--vulnerability-details")
+    parser.add_argument("--findings")
     args = parser.parse_args()
     result = run_sandboxed(
         args.target_path,
@@ -145,6 +149,7 @@ def main() -> int:
         sink_function=args.sink_function,
         check_id=args.check_id,
         vulnerability_details=json.loads(args.vulnerability_details) if args.vulnerability_details else None,
+        findings=json.loads(args.findings) if args.findings else None,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

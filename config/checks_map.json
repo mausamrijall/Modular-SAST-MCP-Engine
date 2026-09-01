@@ -48,14 +48,15 @@
         "mcp_servers.infra_agent",
         "mcp_servers.taint_analyzer",
         "mcp_servers.logic_flaw_agent",
-        "mcp_servers.poc_generator"
+        "mcp_servers.poc_generator",
+        "mcp_servers.poc_verifier",
+        "mcp_servers.behavior_checker"
       ]
     }
   },
   "research_layer": {
     "name": "Orchestrator Research Layer",
-    "advanced_tools": [
-      {
+    "advanced_tools": [      {
         "name": "trace_dataflow",
         "server": "mcp_servers.taint_analyzer",
         "description": "Trace user-controlled data from a source file into a sink function, returning taint paths and sanitizer verdicts.",
@@ -93,6 +94,27 @@
         "tool": "generate_safe_poc",
         "sandbox_operation": "research:safe-poc",
         "safety": "non-executing local proof blueprints only"
+      }
+    }
+  },
+  "verification_layer": {
+    "name": "Orchestrator Verification Layer",
+    "description": "Second-stage assurance that consumes the collected findings: noise filtering plus proof execution.",
+    "agents": {
+      "behavior": {
+        "name": "Behavior & Expected-Usage Evaluator",
+        "server": "mcp_servers.behavior_checker",
+        "tool": "assess_behavior",
+        "sandbox_operation": "behavior",
+        "purpose": "reduce noise by classifying findings as expected vs unexpected usage"
+      },
+      "verify_poc": {
+        "name": "Proof-of-Concept Verifier",
+        "server": "mcp_servers.poc_verifier",
+        "tool": "verify_pocs",
+        "sandbox_operation": "verify-poc",
+        "purpose": "run generated proofs in the isolated harness; only verified findings count as valued",
+        "safety": "network=none, read-only target, no-op instrumented sinks, benign random marker"
       }
     }
   },

@@ -81,19 +81,7 @@ def _synthesize_llm(llm: LLMConfig, topic: str, evidence: list[dict[str, Any]]) 
             ),
         },
     ]
-    payload = json.dumps(llm.to_chat_payload(messages)).encode("utf-8")
-    request = urllib.request.Request(
-        llm.chat_url,
-        data=payload,
-        headers=llm.headers(),
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
-            result = json.loads(response.read().decode("utf-8"))
-        return str(result["choices"][0]["message"]["content"])
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, KeyError, json.JSONDecodeError) as exc:
-        return f"(LLM synthesis failed: {exc})"
+    return llm.complete(messages)
 
 
 def research_web(
@@ -116,8 +104,12 @@ def research_web(
             errors.append(str(exc))
 
     synthesis: str | None = None
+    synthesis_error: str | None = None
     if llm is not None and evidence:
-        synthesis = _synthesize_llm(llm, topic, evidence)
+        try:
+            synthesis = _synthesize_llm(llm, topic, evidence)
+        except Exception as exc:  # noqa: BLE001 - degrade gracefully on network/model errors
+            synthesis_error = f"{type(exc).__name__}: {exc}"
 
     return {
         "topic": topic,
@@ -125,4 +117,5 @@ def research_web(
         "evidence": evidence,
         "errors": errors,
         "synthesis": synthesis,
+        "synthesis_error": synthesis_error,
     }

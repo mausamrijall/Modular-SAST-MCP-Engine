@@ -67,8 +67,27 @@ evidence. The PoC server turns that evidence into local-only verification
 blueprints. It does not generate exploit payloads, send network requests,
 execute target code, or mutate the target.
 
+After the parallel phases, the orchestrator can run a verification layer:
+
+```text
+Orchestrator Verification Layer
+├── Behavior & Expected-Usage Evaluator
+│   └── assess_behavior(target_path)      # noise filtering
+└── Proof-of-Concept Verifier
+    └── verify_pocs(findings, target_path) # executes proofs in the sandbox
+```
+
+The behavior evaluator re-derives findings in-sandbox and marks each as
+expected or unexpected usage. The verifier loads the enclosing Python function,
+calls it with a benign random marker while dangerous sinks are replaced by
+recording no-ops, and reports `verified` only when the marker reaches a sink.
+Static-truth findings (embedded credentials, supply-chain artifacts) are
+`static-confirmed`. A finding is valued when it is not expected usage and its
+verdict is `verified` or `static-confirmed` (`--verification-policy lenient`
+also counts `static-only`).
+
 > See `README.md` for the full, current guide (advanced research modules,
-> extended finding schema, and optional LLM connection).
+> extended finding schema, verification layer, and optional LLM connection).
 
 ## Project layout
 
@@ -83,12 +102,16 @@ execute target code, or mutate the target.
 | `mcp_servers/domain_runtime.py` | Parent fan-out and child-report aggregation |
 | `mcp_servers/sub_agent_client.py` | Stdio JSON-RPC client used by parent agents |
 | `mcp_servers/supply_chain_agent.py` | Shared dependency-analysis MCP server |
+| `mcp_servers/audit_server.py` | Main Orchestrator MCP server (`run_audit`) for Claude Code and other MCP clients |
 | `mcp_servers/common.py` | JSON-RPC server implementation and tool schemas |
 | `sandbox/runner.py` | Docker isolation boundary |
 | `sandbox/worker.py` | In-container worker entrypoint |
 | `sandbox/analysis.py` | AST, regex, filename, and dependency analysis |
 | `sandbox/research.py` | Taint flows, business-logic context, and safe PoC blueprint generation |
+| `sandbox/verify.py` | Proof verification harness and expected-usage noise reduction |
 | `sandbox/slicer.py` | AST context slicer and call-tree builder |
+| `mcp_servers/poc_verifier.py` | Proof-of-Concept Verifier MCP server |
+| `mcp_servers/behavior_checker.py` | Behavior & Expected-Usage Evaluator MCP server |
 | `config/checks_map.json` | Source of truth for all 36 categories and routing rules |
 | `config/llm.py` | Optional OpenAI-compatible LLM connection config |
 
@@ -141,6 +164,22 @@ python -m orchestrator.map_agent /path/to/repository \
   --clarify-question "Which patterns fire this check?"
 ```
 
+The engine can also work standalone when you pass your own LLM credentials:
+
+```bash
+python -m orchestrator.map_agent /path/to/repository \
+  --with-llm-summary \
+  --llm-provider deepseek \
+  --llm-endpoint https://api.deepseek.com/v1 \
+  --llm-api-key your-own-key \
+  --llm-model deepseek-chat \
+  --output audit.json
+```
+
+This adds an AI-written executive summary to the `llm_summary` report section.
+Explicit `--llm-*` values override the `USER_LLM_*` environment variables; the
+same options are available through the MCP `run_audit` tool.
+
 See `README.md` for the full guide.
 
 ## Running MCP servers
@@ -185,6 +224,35 @@ The research layer exposes three additional MCP tools:
 | Cross-File Taint Analyzer | `audit_taint(target_path)`, `trace_dataflow(source_file, sink_function)` |
 | Business Logic & Authorization Engine | `audit_logic_flaws(target_path)` |
 | Automated Exploit Proof-of-Concept Generator | `generate_safe_poc(target_path)`, `generate_poc(check_id, vulnerability_details)` |
+
+The verification layer exposes two more:
+
+| Verification server | Tool |
+| --- | --- |
+| Behavior & Expected-Usage Evaluator | `assess_behavior(target_path)` |
+| Proof-of-Concept Verifier | `verify_pocs(findings, target_path)` |
+
+```bash
+python -m mcp_servers.behavior_checker
+python -m mcp_servers.poc_verifier
+```
+
+The Main Orchestrator Audit Server exposes the whole pipeline as one tool:
+
+```bash
+python -m mcp_servers.audit_server
+```
+
+```text
+run_audit(target_path, ...)  # full audit: domain + research + verification + optional LLM summary
+```
+
+All servers speak the MCP stdio transport (newline-delimited JSON-RPC 2.0) with
+`initialize` (echoing the client's protocol version), `ping`, `tools/list`,
+`tools/call`, and graceful handling of `notifications/*`, `$/cancelRequest`,
+`resources/list`, `prompts/list`, `logging/setLevel`, and `completion/complete`
+— so they work in Claude Code, Cursor, VS Code MCP, Zed, and other MCP clients.
+See `claude.mcp.example.json` / `.mcp.example.json` for registration templates.
 
 Each check child exposes:
 
@@ -241,6 +309,7 @@ The orchestrator writes a JSON report containing:
 - Severity totals
 - Unified supply-chain findings
 - Research-layer findings, taint paths, business-logic evidence, and safe PoC blueprints
+- Verification-layer results: `summary.verification_layer`, the root `verification_layer` section, and the gated `valued_findings` array
 
 Example finding shape:
 
@@ -294,6 +363,12 @@ taint and business-logic engines perform local source analysis only. The
 automated PoC generator is deliberately non-executing: it produces a
 reproducible test plan with a benign `TEST_MARKER_123` value and placeholder
 request metadata for a disposable local fixture.
+
+The Proof-of-Concept Verifier is the one component that invokes target code,
+and only inside the isolated worker: `--network=none`, read-only target mount,
+dropped capabilities, and resource limits, with every dangerous sink replaced
+by a recording no-op and a benign random marker. No exploit payload is used, no
+request is sent, and no real operation is executed.
 
 ## Development checks
 

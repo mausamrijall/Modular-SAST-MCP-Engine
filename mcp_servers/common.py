@@ -46,7 +46,16 @@ def serve_mcp(
     tools: dict[str, tuple[str, str, ToolHandler]],
     clarify_handler: ToolHandler | None = None,
 ) -> None:
-    """Serve a small, stdio JSON-RPC MCP surface.
+    """Serve a stdio JSON-RPC MCP surface compatible with MCP clients.
+
+    Implements the MCP stdio transport (newline-delimited JSON-RPC 2.0):
+    ``initialize``, ``ping``, ``tools/list``, and ``tools/call``, plus graceful
+    handling of ``notifications/*``, ``$/cancelRequest``, and common optional
+    methods (``resources/list``, ``prompts/list``, ``logging/setLevel``,
+    ``completion/complete``).  The ``initialize`` response echoes the protocol
+    version the client requested so strict hosts such as Claude Code accept the
+    handshake.  Unknown methods return a JSON-RPC ``-32601`` error instead of
+    failing the process.
 
     tools maps a tool name to (description, input_schema, handler).  The
     handler is called with keyword arguments from tools/call.arguments.
@@ -86,21 +95,24 @@ def serve_mcp(
         try:
             request = json.loads(raw_line)
             request_id = request.get("id")
-            method = request.get("method")
+            method = request.get("method") or ""
             params = request.get("params") or {}
 
             if method == "initialize":
+                requested_version = str((params or {}).get("protocolVersion") or "2025-03-26")
                 result = {
-                    "protocolVersion": "2025-03-26",
+                    "protocolVersion": requested_version,
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": server_name,
                         "version": server_version,
                     },
                 }
-            elif method == "notifications/initialized":
-                # JSON-RPC notifications have no response.  Continue reading.
+            elif method.startswith("notifications/"):
+                # JSON-RPC notifications carry no id and must not be answered.
                 continue
+            elif method == "$/cancelRequest":
+                result = {}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
@@ -131,8 +143,18 @@ def serve_mcp(
                     "structuredContent": result,
                     "isError": False,
                 }
+            elif method in ("resources/list", "resources/templates/list"):
+                result = {"resources": []}
+            elif method == "prompts/list":
+                result = {"prompts": []}
+            elif method == "logging/setLevel":
+                result = {}
+            elif method == "completion/complete":
+                result = {"completion": {"values": [], "total": 0, "hasMore": False}}
             else:
-                raise ValueError(f"Unsupported method: {method}")
+                sys.stdout.write(_jsonrpc_error(request_id, -32601, f"Method not found: {method}") + "\n")
+                sys.stdout.flush()
+                continue
 
             sys.stdout.write(_jsonrpc_result(request_id, result) + "\n")
             sys.stdout.flush()
@@ -218,6 +240,19 @@ RESEARCH_METHODOLOGY: dict[str, JsonObject] = {
         "description": "Non-executing curl/HTTP proof blueprints from research evidence.",
         "marker": "TEST_MARKER_123",
         "safety": "never executes, never sends network requests, never mutates target",
+    },
+    "verify_poc": {
+        "name": "Proof-of-Concept Verifier",
+        "description": "Runs proofs in an isolated harness with instrumented no-op sinks.",
+        "verdicts": ["verified", "static-confirmed", "not-reproduced", "static-only", "unsupported"],
+        "valued": "only verified and static-confirmed findings count as valued",
+        "safety": "network=none, read-only target, no-op sinks, benign random marker",
+    },
+    "behavior": {
+        "name": "Behavior & Expected-Usage Evaluator",
+        "description": "Classifies findings as expected (test/example/docs/lockfile/template) or unexpected usage.",
+        "output": "per-finding behavior annotation with rationale",
+        "purpose": "reduce noise before counting valued findings",
     },
 }
 
