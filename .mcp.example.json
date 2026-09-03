@@ -1,0 +1,54 @@
+{
+  "//": "Generic MCP client registration example (same mcpServers shape used by Cursor, VS Code MCP, Zed, npx, etc.). Adjust PYTHONPATH to the engine checkout.",
+  "mcpServers": {
+    "sast-audit": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.audit_server"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine"
+      }
+    },
+    "sast-secrets": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.secrets_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine"
+      }
+    },
+    "sast-injection": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.injection_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine"
+      }
+    },
+    "sast-infra": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.infra_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine"
+      }
+    },
+    "sast-supply-chain": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.supply_chain_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine"
+      }
+    },
+    "sast-verify": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.poc_verifier"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine"
+      }
+    },
+    "sast-behavior": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.behavior_checker"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine"
+      }
+    }
+  }
+}

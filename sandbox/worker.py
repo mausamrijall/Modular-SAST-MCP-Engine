@@ -15,6 +15,7 @@ from sandbox.research import (
     generate_safe_pocs,
     trace_dataflow,
 )
+from sandbox.verify import assess_behavior, verify_pocs
 
 
 def _research(kind: str, target: str) -> dict:
@@ -33,7 +34,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SAST analysis worker; intended for sandbox execution")
     parser.add_argument(
         "--operation",
-        choices=("audit", "supply-chain", "research", "trace", "poc"),
+        choices=("audit", "supply-chain", "research", "trace", "poc", "verify-poc", "behavior"),
         required=True,
     )
     parser.add_argument(
@@ -49,6 +50,7 @@ def main() -> int:
     parser.add_argument("--sink-function", default=None)
     parser.add_argument("--check-id", default=None)
     parser.add_argument("--vulnerability-details", default=None)
+    parser.add_argument("--findings", default=None)
     args = parser.parse_args()
 
     if args.operation == "audit":
@@ -63,13 +65,18 @@ def main() -> int:
         if not args.source_file or not args.sink_function:
             raise SystemExit("--source-file and --sink-function are required for trace")
         result = trace_dataflow(args.target, args.source_file, args.sink_function)
+    elif args.operation == "verify-poc":
+        if args.findings is None:
+            raise SystemExit("--findings is required for verify-poc")
+        result = verify_pocs(args.target, json.loads(args.findings))
+    elif args.operation == "behavior":
+        result = assess_behavior(args.target)
     else:
         if not args.check_id or not args.vulnerability_details:
             raise SystemExit("--check-id and --vulnerability-details are required for poc")
         result = generate_poc(args.check_id, json.loads(args.vulnerability_details))
     sys.stdout.write(json.dumps(result, sort_keys=True))
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

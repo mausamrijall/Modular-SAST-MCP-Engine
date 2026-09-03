@@ -1,0 +1,61 @@
+{
+  "//": "Claude Code MCP registration example. Copy to claude.mcp.json (or ~/.claude.json mcpServers) and adjust paths. Run from the repo root or set PYTHONPATH so the mcp_servers package is importable.",
+  "mcpServers": {
+    "sast-audit": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.audit_server"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine",
+        "SAST_TARGET_PATH": "/path/to/repository-to-audit"
+      }
+    },
+    "sast-secrets": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.secrets_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine",
+        "SAST_TARGET_PATH": "/path/to/repository-to-audit"
+      }
+    },
+    "sast-injection": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.injection_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine",
+        "SAST_TARGET_PATH": "/path/to/repository-to-audit"
+      }
+    },
+    "sast-infra": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.infra_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine",
+        "SAST_TARGET_PATH": "/path/to/repository-to-audit"
+      }
+    },
+    "sast-supply-chain": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.supply_chain_agent"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine",
+        "SAST_TARGET_PATH": "/path/to/repository-to-audit"
+      }
+    },
+    "sast-verify": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.poc_verifier"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine",
+        "SAST_TARGET_PATH": "/path/to/repository-to-audit"
+      }
+    },
+    "sast-behavior": {
+      "command": "python3",
+      "args": ["-m", "mcp_servers.behavior_checker"],
+      "env": {
+        "PYTHONPATH": "/path/to/Modular-SAST-MCP-Engine",
+        "SAST_TARGET_PATH": "/path/to/repository-to-audit"
+      }
+    }
+  }
+}
